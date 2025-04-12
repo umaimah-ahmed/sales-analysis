@@ -1,0 +1,416 @@
+---
+title: "Practice0 - Stat 240"
+author: "Umaimah Ahmed"
+date: 2025-02-13
+output: 
+  pdf_document:
+    fig_height: 3
+    fig_width: 5
+---
+
+```{r, setup, include=FALSE}
+library(mosaic)
+library(tidyverse)
+library(GGally)
+library(gridExtra)
+options(digits = 6)
+
+# Modeling packages
+library(rsample)  # for data splitting
+library(caret)    # for cross-validation, etc.
+
+```
+
+The overall assignment is due by midnight, Thursday, Feb. 13th to Gradescope. The intermediate part of the assignment - see separate checklist and instructions - is due by midnight, Friday, Feb. 6th to Gradescope. 
+
+
+# Practicing Academic Integrity
+
+If you worked with others or used resources outside of provided course material (anything besides our textbook(s), course materials in Moodle, R help menu) to complete this assignment, please acknowledge them below using a bulleted list. 
+
+<!-- ~~~~~~~~~~~~~~~~ YOU MAY BEGIN EDITING BELOW THIS LINE ~~~~~~~~~~~~~~~~ -->
+
+*I acknowledge the following individuals with whom I worked on this assignment:*
+
+Name(s) and what they helped with
+
+*
+
+*I used the following sources to help complete this assignment:*
+
+Source(s) and where you used them
+
+* Boehmke, B., & Greenwell, B.M. (2019). Hands-On Machine Learning with R (1st ed.). Chapman and Hall/CRC. https://doi.org/10.1201/9780367816377
+
+\newpage
+
+
+# Prompt
+
+You've been retained as a statistical consultant for the company WidgetsRUs, which sells widgets. They have three stores in a particular city, and they are trying to develop a model to predict the daily number of a particular widget sold based on some other variables: price of the widget that day (dollars), whether there was a sale on the widget that day (yes/no), the inside (store) and outside temperatures (degrees Fahrenheit), whether the weather was good or bad, whether there was a sign displayed that the store had the item in stock, and the location of the store. They have provided data for you from the past 200 days of sales, which you can assume is a representative sample of their sales. (Normally, you'd have concern here about correlation over time, we are ignoring that for this exercise.)
+
+Here is the variable list: 
+
+Location - one of three locations - North, South, Central  
+OutsideTemp - average outside temperature near store in degrees F  
+InsideTemp - average store temperature in degrees F  
+Weather - was weather good or bad?  
+Sign - was there a sign advertising the store currently had the item in stock?    
+NumSold - number of the item sold  
+Price - price of the item  
+Sale - whether there was a sale on the item or not  
+
+Your task is to explore the data and propose (at least) 2 regression models for NumSold that will be compared using a CV-based approach, and argue that a final model you select is "best". 
+
+\newpage
+
+## Introduction 
+
+```{r, include = FALSE}
+# Do not put anything in this chunk. It is for instructions only.
+# It will not show up in your rendered pdf document.
+
+# You should provide your own brief introduction to the problem at hand. 
+# The intro section should be you restating the problem in your own words, 
+# with relevant context. From the intro, a reader should know what you understand
+# the problem to be, how you plan to tackle it, and broadly, what data you have
+# to work with (data details in the next section).
+
+```
+
+The retailer WidgetsRUs seeks to develop a predictive model to better understand the factors influencing daily sales of a specific widget. To achieve this goal, we will analyze widget sales data from their three store locations, collected over 200 days, which includes a range of variables that may impact widget sales. Broadly, this includes price, promotional efforts (like sales and signage), various environmental conditions (inside and outside temperatures, weather quality), and store location (North, South, and Central). By evaluating the relationships between these variables, we aim to construct a model that can predict the daily number of widgets sold under varying conditions. Our approach will involve exploratory data analysis to identify trends and relationships. Then we will discuss our methods before sharing the results and performance of the predictive model we developed.
+
+We begin with an overview of the dataset.
+
+\newpage
+
+## Data 
+
+```{r, include = FALSE}
+# Do not put anything in this chunk. It is for instructions only.
+# It will not show up in your rendered pdf document.
+
+# Introduce the reader to the data set. 
+# You should describe what you know about the data set. 
+
+# Then, you need to engage in EDA and any pre-processing that needs done before
+# you can implement the necessary methods to tackle the analysis itself. 
+# All those steps/decisions should be described here. 
+```
+
+
+```{r}
+widgets <- 
+  read.csv("https://awagaman.people.amherst.edu/stat240/WidgetData.csv")
+```
+
+The widgets dataset has 600 observations with 8 variables recording information about widget sales on a given day. There are four quantitative variables: 
+
+* `OutsideTemp`, which records the temperature outside on that day; 
+* `InsideTemp`, which records the temperature inside the store; 
+* `NumSold`, which records the quantity of widgets sold on that day; and 
+* `Price`, which states the price of the widget on that day. 
+
+There are also four categorical variables: 
+* `Sale` and `Sign` state if there was a sale on widgets that day, and if there was a sign present announcing the sale, respectively. 
+* `Weather`, which tells us the quality of the weather on that day, either 'good' or 'poor.' 
+* Finally, `Location` tells us which of the three stores this data is from. 
+
+Our intended response variable is `NumSold`, the number of widgets sold in a day. 
+
+First, we check if there is any missingness, any zero variance variables, or near-zero variance variables that may have impeded our analysis.
+
+```{r}
+# visualization of missing data
+visdat::vis_miss(widgets, cluster = TRUE)
+
+caret::nearZeroVar(widgets, saveMetrics = TRUE) %>% 
+  tibble::rownames_to_column() %>% 
+  filter(nzv)
+```
+
+No missing values and no zero or near zero variance variables were detected. We are able to move onto univariate data analysis. 
+ 
+ 
+
+**Univariate Data Analysis**
+
+We start out by looking at the distribution of our variable of interest, `NumSold`.
+
+```{r}
+# looking at response variable
+favstats(~ NumSold, data = widgets)
+
+# visual representation of the distribution of response
+ggplot(widgets, aes(x = NumSold)) +
+  geom_histogram(aes(y = after_stat(density)), binwidth = 1) +
+  geom_density() +
+  labs(title = "Overlaid Histogram and Density Plot for NumSold")
+```
+
+`NumSold` appears to be somewhat symmetrical with a mean of around 13 widgets sold. `NumSold` does not appear to have outliers or any other unusual features that require further investigation.
+
+```{r, eval=FALSE}
+ggplot(widgets, aes(x = Price)) +
+  geom_histogram(aes(y = after_stat(density))) +
+  geom_density()
+
+ggplot(widgets, aes(x = OutsideTemp)) +
+  geom_histogram(aes(y = after_stat(density))) +
+  geom_density()
+
+ggplot(widgets, aes(x = `OutsideTemp`)) +
+  geom_histogram(aes(y = after_stat(density))) +
+  geom_density()
+```
+
+We also took a look at the distribution of the other quantitative variables, `OutsideTemp`, `InsideTemp`, and Price, but there was nothing of note to report.
+
+Next, we check the counts of the categorical variables.
+```{r}
+tally(~ Location, data = widgets)
+tally(~ Weather, data = widgets)
+tally(~ Sign, data = widgets)
+tally(~ Sale, data = widgets)
+```
+
+We note that there are very few observations where `Weather` was reported as Poor, and anticipate that it may cause trouble when we split the data. For now we proceed with caution.
+
+Next, we perform bivariate data analysis to understand the relationship between the quantity of widgets sold with the rest of the variables in our dataset. 
+ 
+ 
+
+**Bivariate Data Analysis**
+
+```{r, fig.width=6, fig.height=2.5}
+# boxplots
+bp1 <- gf_boxplot(NumSold ~ Location, data = widgets)
+bp2 <- gf_boxplot(NumSold ~ Sign, data = widgets)
+bp3 <- gf_boxplot(NumSold ~ Sale, data = widgets)
+bp4 <- gf_boxplot(NumSold ~ Weather, data = widgets)
+
+# scatterplots
+sp1 <- gf_point(NumSold ~ OutsideTemp, data = widgets, size = 1,
+                position = "jitter", alpha = 0.7)
+sp2 <- gf_point(NumSold ~ InsideTemp, data = widgets, size = 1, 
+                position = "jitter", alpha = 0.7)
+sp3 <- gf_point(NumSold ~ Price, data = widgets, size = 1, 
+                position = "jitter", alpha = 0.7)
+
+grid.arrange(bp1, bp2, bp3, bp4, ncol = 4)
+grid.arrange(sp3, sp1, sp2, ncol = 3)
+
+```
+
+We note that `Sale` and `Location` may have some kind of relationship with `NumSold`. Both are categorical variables, and based on the tallys above, we decide that it would be best to stratify by `Sale` when splitting the data into training and test sets. Whereas each location (North, South, Central) had exactly equal numbers of observations, `Sale` is not equal across levels. To achieve similar distributions for `Sale` in the training and test sets, we stratify by `Sale`.
+There also appears to be a moderately strong, negative, linear relationship between `Price` and `NumSold`. As the price of the widget goes up, the quantity sold goes down. The scatterplots of `OutsideTemp` vs `NumSold` and `InsideTemp` vs `NumSold` show a lot of randomness suggesting there isn't much of an association between temperature and the number of widgets sold.
+
+We decided to do a quick graphical check to see if there are any differences in the price of the widgets by the location of the store:
+
+```{r}
+gf_point(NumSold ~ Price, data = widgets, color = ~ Location, alpha = 0.7,
+         position = "jitter",
+         xlab = "Price of Widget", ylab = "Number of Widgets Sold") %>%
+  gf_lm()
+```
+
+We note an interesting relationship between `Location` and `Price`. Based on the plot above, it appears that the relationship between the number of widgets sold and the price of the widget is slightly different for each store location. 
+
+**Splitting the Data**
+
+With 600 observations, we decided it would be appropriate to do a 80:20 split.
+
+```{r}
+# Set up data set train/test split
+# Stratified sampling with the rsample package
+set.seed(240) # change to whatever seed you want
+split <- initial_split(widgets, prop = 0.8, strata = "Sale")
+widgets_train  <- training(split)
+widgets_test   <- testing(split)
+```
+
+```{r}
+caret::nearZeroVar(widgets_train, saveMetrics = TRUE) %>% 
+  tibble::rownames_to_column() %>% 
+  filter(nzv)
+```
+
+As we suspected earlier in our exploration, `Weather` has near zero variance in the training set, so we will not be including it in further analysis. 
+
+
+```{r, message=FALSE, warning=FALSE, fig.height=4, fig.width=6}
+# take out weather
+widgets_train <- widgets_train %>% select(-Weather)
+ggpairs(select(widgets, -Weather), aes(color = Location))
+ggpairs(widgets_train, aes(color = Location)) #Scatterplot matrix
+```
+
+We took a look at the scatterplot matrix of the training set and compared it to the matrix of the full set and found them to be very similar; the training set appears to be a good representation of the full dataset. As there does not appear to be anything of concern, we move on to constructing models to predict `NumSold`.
+
+\newpage
+
+## Methods
+
+```{r, include = FALSE}
+# Do not put anything in this chunk. It is for instructions only.
+# It will not show up in your rendered pdf document.
+
+# The idea here is to outline what methods the reader will see applied next 
+# and why you chose them, as well as how you are setting any options that they
+# have in order to do the analysis. 
+
+```
+
+  In order to create a model that will better predict unseen or future data, we split the dataset into two parts - the training set and the test set. We use the training set to build our model, tune any hyperparameters, and compare different models we generate. Then, after choosing our final model, we use the test set to test our model's performance. We decided on a 80%/20% split in order to have enough data in the training set to generate a good model without hindering our assessment of the model by making the test set too small. 
+  
+  As mentioned briefly in the Data section, we stratified by `Sale` when splitting the data because we wanted to control the training and test sets to have similar distributions. During data exploration, we noted that `Sale` and `Sign` had unequal distributions between levels. Since there appeared to be a more evident relationship between `Sale` and `NumSold` than `Sign` and `NumSold`, we decided to stratify based on `Sale`. This ensured the training and test sets had similar proportions of observations with `Sale` = Yes and observations with `Sale` = No.
+  
+  Our model selection process involves the use of backwards elimination. Starting with a "kitchen sink" approach, we generated Model 1 using all the variables other than `Weather`, which we identified not to be useful in the Data section, to predict `NumSold`. Note that we also include the interaction between `Location` and `Price` in Model 1, based on our findings in the Data section. The process of backwards elimination involves taking out the least statistically significant terms in the model in order to improve model performance, which in this instance we will measure with Akaike's Information Criterion (AIC). In other words, we drop terms one by one until we can no longer decrease the model AIC, as we are aiming for a lower AIC. This process gives us Model 2.
+  
+  We decided to include a third model, Model 3, which was made from adjusting Model 2 by adding a term that was previously dropped. One drawback of backwards elimination is that it is possible for a model with a lower AIC to be overlooked because a term was dropped earlier on in the process. Because we noted a relationship between `Sale` and `NumSold` in the exploratory data analysis, we decided to test an additional model to see if Model 2 could be improved by adding back the term `Sale`. 
+  
+  We chose the method of $k$-fold cross validation to compare models generated with the training data. In $k$-fold cross validation, the "fold" refers to groups of observations created by resampling from the training set. With $k=5$ folds, we resampled the data by randomly forming them into 5 groups, fit the model on 4 of those groups, and finally used the remaining group to compute model performance. This process of fitting and testing is repeated $k-1$, or 4 more times, so that each group has a turn as the test group we assess the model against. We average the $k$ test errors to get our overall k-fold CV estimate.
+  We used k-fold CV on Models 1, 2, and 3, and compared their mean performance scores to decide which model is the best. Performance measures we looked for were a low RMSE and high $R^2$.
+  
+  According to *Hands-on Machine Learning with R*, generally $k=5$ or $k=10$ is used, but a larger $k$ will get us closer to the true model performance at the cost of greater computational burden (Boehmke & Greenwell, 2020). With 600 observations, we decided that $k=10$ would be reasonable. The text also states that for smaller data sets with fewer than 10,000 observations, its beneficial to employ repeated k-fold cross validation in order to improve accuracy. We decided to repeat the CV process 10 times.
+
+\newpage
+
+## Results 
+
+```{r, include = FALSE}
+# Do not put anything in this chunk. It is for instructions only.
+# It will not show up in your rendered pdf document.
+
+# Apply the methods (show your work) and describe what you find. 
+# Describe/show the path you took and how you arrived at your final analysis
+# and give details in depth for the main techniques/models you are comparing. 
+
+```
+
+
+```{r}
+Model1 <- lm(NumSold ~ Location + OutsideTemp + InsideTemp + Sign + Sale + 
+                        Price + Price:Location, data = widgets_train)
+
+msummary(Model1)
+```
+
+We fit the first model being considered above. Model 1 is a multiple linear regression model that predicts `NumSold` from all the variables we decided to keep for our analysis: `Location`, `OutsideTemp`, `InsideTemp`, `Sign`, `Sale` and `Price` *with* the additional term of the interaction between `Price` and `Location`.
+
+```{r, eval=FALSE}
+# backwards elimination
+step(Model1, direction = "backward")
+```
+
+```{r}
+# saving model found through backward elimination
+Model2 <- lm(NumSold ~ Location + Price + Location:Price, 
+              data = widgets_train)
+```
+
+Next, we performed backwards elimination starting from Model 1. The first term dropped was `Sign`, followed by `OutsideTemp`, `Sale`, and lastly, `InsideTemp`. We save the reduced model as Model2, which predicts `NumSold` from `Price`, `Location`, and the interaction of `Price` and `Location`.
+
+Because there appeared to be some kind of relationship between `Sale` and `NumSold`, we're curious to see if the reduced model might actually benefit from adding back `Sale`. We develop a third model, Model 3, that predicts `NumSold` from `Price`, `Location`, `Sale`, and the interaction of `Price` and `Location`.
+
+Below, we assess the performance of our three models though 10 fold cross validation repeated 10 times.
+
+
+```{r}
+# Model1 model CV
+set.seed(240)
+cv_model1 <- train(
+  NumSold ~ Location + OutsideTemp + InsideTemp + Sign + Sale + Price + 
+            Price:Location, 
+  data = widgets_train, 
+  method = "lm",
+  trControl = trainControl(method = "repeatedcv", number = 10, repeats = 10)
+)
+
+# Model2 model CV
+set.seed(240)
+cv_model2 <- train(
+  NumSold ~ Location + Price + Price:Location, 
+  data = widgets_train, 
+  method = "lm",
+  trControl = trainControl(method = "repeatedcv", number = 10, repeats = 10)
+)
+
+# Model3 model CV
+set.seed(240)
+cv_model3 <- train(
+  NumSold ~ Location + Sale + Price + Price:Location, 
+  data = widgets_train, 
+  method = "lm",
+  trControl = trainControl(method = "repeatedcv", number = 10, repeats = 10)
+)
+# Extract out of sample performance measures
+summary(resamples(list(
+  model1 = cv_model1, 
+  model2 = cv_model2,
+  model3 = cv_model3
+)))
+```
+
+Model2, which used `Location`, `Price`, and the interaction of `Location` and `Price` to predict NumSold, performed the best out of the three models. Model 2 had the lowest RMSE on average, as well as the highest $R^2$. However, we note that all three models perform similarly, with Model 1 being slightly worse than Model 2 or Model 3. In any case, adding `Sale` to Model 2 did not make any appreciable improvements to the model, therefore we prefer Model 2, the simpler model.
+
+The scatterplot below illustrates our final model, highlighting the interaction between `Price` and `Location`:
+
+```{r, fig.width=6}
+ggplot(data = widgets_train, aes(x = Price, y = NumSold, color = Location)) +
+  geom_point(position = "jitter", size = 1.5, alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Number of Widgets Sold predicted by Price and Location")
+```
+
+We see that the effect of `Price` on `NumSold` changes for each `Location`: Central, North, or South.
+
+```{r}
+# checking conditions
+mplot(Model2, which = 2)
+mplot(Model2, which = 1)
+```
+
+The QQ plot shows that the residuals are more or less normally distributed. In the residuals vs. fitted plot, the residuals are scattered and centered at 0. The diagonal pattern of the residuals can be attributed to the fact that the response variable is count data, or non-negative integers, so we are not concerned by the appearance of the plot. The conditions for regression appear to be satisfied for Model 2.
+
+After choosing our model and testing conditions, we can finally assess our model against the test set.
+```{r}
+# fit model to training data
+train_pred <- predict(Model2, newdata = widgets_train)
+train_mse <- mean((widgets_train$NumSold - train_pred)^2)
+train_mse
+
+# getting test mse
+test_pred <- predict(Model2, newdata = widgets_test)
+test_mse <- mean((widgets_test$NumSold - test_pred)^2)
+test_mse
+```
+We found the MSE of the training set to be 4.032 and the MSE of the test set to be 5.165.
+
+
+\newpage
+
+## Conclusion 
+
+
+```{r, include = FALSE}
+# Do not put anything in this chunk. It is for instructions only.
+# It will not show up in your rendered pdf document.
+
+# Write a few sentences that summarize what you found, 
+# addressing the problem at hand. 
+```
+
+```{r, eval=FALSE}
+msummary(Model2)
+```
+
+Through our analysis, we found an appropriate model to help WidgetsRUs achieve their goal of predicting daily widget sales. 
+We developed the following model: 
+
+$NumSold = 45.01 - 10.69LocationNorth + 5.2LocationSouth - 3.49Price + 1.04LocationNorth*Price - 0.553LocationSouth*Price$,
+
+which predicts the daily number of widgets sold from the price of the widget and the store location that it is sold from. It appears to perform well with an $R^2$ of 0.85, with conditions reasonably satisfied. Of the models tested in this analysis it also had the lowest RMSE found through repeated 10-fold cross validation.
+
+The test MSE was 5.16, which suggests that the response values on future data would be off by an average of about 2.27 units, or about 2-3 widgets. With this analysis, and the model we have constructed from it, WidgetsRUs can project future daily widget sales and make informed decisions about the quantity of widgets they need to produce and stock with reasonable accuracy.
+
